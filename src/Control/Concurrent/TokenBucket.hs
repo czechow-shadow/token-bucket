@@ -8,6 +8,8 @@ module Control.Concurrent.TokenBucket
     ( -- * The 'TokenBucket' type
       TokenBucket
     , newTokenBucket
+    , newTokenBucketWithTimeFun
+    , getTBData
 
       -- * Operations on 'TokenBucket'
       --
@@ -58,16 +60,17 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 #endif
 import Data.Word (Word64)
 
--- | Abstract type containing the token bucket state
-newtype TokenBucket = TB (IORef TBData)
+-- | Abstract type containing the token bucket state and a function to
+-- query for current time.
+data TokenBucket = TB !(IORef TBData) !(IO PosixTimeUsecs)
 
 data TBData = TBData !Word64 !PosixTimeUsecs
               deriving Show
 
 type PosixTimeUsecs = Word64
 
--- getTBData :: TokenBucket -> IO TBData
--- getTBData (TB lbd) = readIORef lbd
+getTBData :: TokenBucket -> IO TBData
+getTBData (TB lbd _) = readIORef lbd
 
 #if defined(USE_CBITS)
 foreign import ccall unsafe "hs_token_bucket_get_posix_time_usecs"
@@ -79,10 +82,16 @@ getPosixTimeUsecs = fmap (floor . (*1e6)) getPOSIXTime
 
 -- | Create new 'TokenBucket' instance
 newTokenBucket :: IO TokenBucket
-newTokenBucket = do
-    now <- getPosixTimeUsecs
+newTokenBucket = newTokenBucketWithTimeFun getPosixTimeUsecs
+
+
+-- | Create new 'TokenBucket' instance with custom time function.
+-- Used primarily for testing.
+newTokenBucketWithTimeFun :: IO PosixTimeUsecs -> IO TokenBucket
+newTokenBucketWithTimeFun timeFun = do
+    now <- timeFun
     lbd <- newIORef $! TBData 0 now
-    evaluate (TB lbd)
+    evaluate (TB lbd timeFun)
 
 -- | Attempt to allocate a given amount of tokens from the 'TokenBucket'
 --
@@ -96,8 +105,8 @@ tokenBucketTryAlloc :: TokenBucket
                     -> IO Bool -- ^ 'True' if allocation succeeded
 tokenBucketTryAlloc _ _  0 _ = return True -- infinitive rate, no-op
 tokenBucketTryAlloc _ burst _ alloc | alloc > burst = return False
-tokenBucketTryAlloc (TB lbref) burst invRate alloc = do
-    now <- getPosixTimeUsecs
+tokenBucketTryAlloc (TB lbref timeFun) burst invRate alloc = do
+    now <- timeFun
     atomicModifyIORef' lbref (go now)
   where
     go now (TBData lvl ts)
@@ -127,8 +136,8 @@ tokenBucketTryAlloc1 :: TokenBucket
                      -> Word64     -- ^ avg. inverse rate (usec/token)
                      -> IO Word64  -- ^ retry-time (usecs)
 tokenBucketTryAlloc1 _ _ 0 = return 0 -- infinite rate, no-op
-tokenBucketTryAlloc1 (TB lbref) burst invRate = do
-    now <- getPosixTimeUsecs
+tokenBucketTryAlloc1 (TB lbref timeFun) burst invRate = do
+    now <- timeFun
     atomicModifyIORef' lbref (go now)
   where
     go now (TBData lvl ts)

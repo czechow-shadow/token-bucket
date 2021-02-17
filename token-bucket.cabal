@@ -35,19 +35,19 @@ flag use-cbits
 
 library
   default-language:    Haskell2010
-  build-depends:       base >=4.6 && <4.10
+  build-depends:       base >=4.6 && <5
   hs-source-dirs:      src
   if flag(use-cbits)
     cpp-options:       -DUSE_CBITS
     c-sources:         cbits/get_posix_time.c
   else
-    build-depends:     time >=1.4 && <1.7
+    build-depends:     time >=1.4 && <2
   ghc-options: -Wall
   exposed-modules:     Control.Concurrent.TokenBucket
 
 test-suite test-tb
   default-language:    Haskell2010
   type:                exitcode-stdio-1.0
-  build-depends:       base >=4.6 && <4.10, time >=1.4 && <1.7, token-bucket
+  build-depends:       base >=4.6 && <5, time >=1.4 && <2, token-bucket
   main-is:             test-tb.hs
   ghc-options:         -Wall -threaded -rtsopts
